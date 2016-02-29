@@ -43,6 +43,10 @@ class MongoCollection
      */
     private $readPreference;
 
+
+    // NEW BAMIL CODE
+    private $mongoDBCollection = null;
+
     /**
      * Creates a new collection
      *
@@ -51,13 +55,27 @@ class MongoCollection
      *
      * @return - Returns a new collection object.
      */
-    public function __construct(MongoDB $db, $name)
+    public function __construct(MongoDB $db, $name, \MongoDB\Collection $collection = null)
     {
         $this->db = $db;
         $this->name = $name;
         $this->readPreference = $db->getReadPreference();
         $this->fqn = $db->_getFullCollectionName($name);
         $this->client = $db->_getClient();
+
+        $this->mongoDBCollection = $collection;
+        $this->client->mongoCollections[$name] = $collection;
+
+//
+//        if (true === is_null($this->mongoDBCollection)) {
+//            $this->mongoDBCollection = $this->client->mongoDBClient->selectCollection((string)$this->db, $name);
+//            $this->db->setCurrentCollection($this->mongoDBCollection);
+//        }
+    }
+
+    public function getCollection()
+    {
+        return $this->mongoDBCollection;
     }
 
     /**
@@ -146,7 +164,8 @@ class MongoCollection
      */
     public function find(array $query = [], array $fields = [])
     {
-        return new MongoCursor($this->client, $this->fqn, $query, $fields);
+        $cursor = $this->mongoDBCollection->find($query, $fields);
+        return new MongoCursor($this->client, $this->fqn, $query, $fields, $cursor, $this->mongoDBCollection);
     }
 
     /**
@@ -160,9 +179,38 @@ class MongoCollection
      */
     public function findOne($query = [], array $fields = [])
     {
-        $cursor = $this->find($query, $fields)->limit(1);
+        $result = (array)$this->mongoDBCollection->findOne($query)->bsonSerialize();
+        foreach ($result as $field => $value) {
 
-        return $cursor->getNext();
+            if (true === ($value instanceof \MongoDB\BSON\UTCDatetime)) {
+                $result[$field] = new \DateTime('now');
+            }
+
+            if (true === ($value instanceof \MongoDB\Model\BSONDocument)) {
+
+                // BSONDocument with timestamp from ODM
+                if (true === isset($value->sec)) {
+                    $result[$field] = new \DateTime();
+                    $result[$field]->setTimestamp($value->sec);
+                }
+                else {
+                    $result[$field] = (array)$value;
+                }
+            }
+
+            if (true === ($value instanceof \MongoDB\Model\BSONArray)) {
+                $vals = (array)$value;
+                $valsTmp = [];
+                foreach ($vals as $keyOfArr => $valueOfArr) {
+                    if (true === ($valueOfArr instanceof \MongoDB\Model\BSONDocument)) {
+                        $valsTmp[$keyOfArr] = (array)$valueOfArr;
+                    }
+                }
+                $result[$field] = $valsTmp;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -181,6 +229,8 @@ class MongoCollection
         array $options = null
     )
     {
+        die(__METHOD__);
+
         $command = ['findandmodify' => $this->name];
 
         if ($query) {
@@ -214,6 +264,8 @@ class MongoCollection
      */
     public function drop()
     {
+        die(__METHOD__);
+
         $this->db->command(['drop' => $this->name]);
     }
 
@@ -242,20 +294,7 @@ class MongoCollection
      */
     public function insert(&$document, array $options = [])
     {
-        $timeout = MongoCursor::$timeout;
-        if (!empty($options['timeout'])) {
-            $timeout = $options['timeout'];
-        }
-
-        $this->fillIdInDocumentIfNeeded($document);
-        $documents = [&$document];
-
-        return $this->client->_getWriteProtocol()->opInsert(
-            $this->fqn,
-            $documents,
-            $options,
-            $timeout
-        );
+        return $this->mongoDBCollection->insertOne($document, $options);
     }
 
     /**
@@ -271,33 +310,10 @@ class MongoCollection
      */
     public function batchInsert(array &$documents, array $options = [])
     {
-        $timeout = MongoCursor::$timeout;
-        if (!empty($options['timeout'])) {
-            $timeout = $options['timeout'];
+        foreach ($documents as $document) {
+            $this->mongoDBCollection->insertOne($document, $options);
         }
-
-        $count = count($documents);
-        $keys = array_keys($documents);
-        for ($i=0; $i < $count; $i++) {
-            $this->fillIdInDocumentIfNeeded($documents[$keys[$i]]);
-        }
-
-        $this->client->_getWriteProtocol()->opInsert($this->fqn, $documents, $options, $timeout);
-
-        // Fake response for async insert -
-        // TODO: detect "w" option and return status array
         return true;
-    }
-
-    private function fillIdInDocumentIfNeeded(&$document)
-    {
-        if (is_object($document)) {
-            $document = get_object_vars($document);
-        }
-
-        if (!isset($document['_id'])) {
-            $document['_id'] = new MongoId();
-        }
     }
 
     /**
@@ -316,18 +332,7 @@ class MongoCollection
      */
     public function update(array $criteria, array $newObject, array $options = [])
     {
-        $timeout = MongoCursor::$timeout;
-        if (!empty($options['timeout'])) {
-            $timeout = $options['timeout'];
-        }
-
-        return $this->client->_getWriteProtocol()->opUpdate(
-            $this->fqn,
-            $criteria,
-            $newObject,
-            $options,
-            $timeout
-        );
+        return $this->mongoDBCollection->updateMany($criteria, $newObject, $options);
     }
 
     /**
@@ -374,6 +379,8 @@ class MongoCollection
      */
     public function remove(array $criteria = [], array $options = [])
     {
+        die(__METHOD__);
+
         $timeout = MongoCursor::$timeout;
         if (!empty($options['timeout'])) {
             $timeout = $options['timeout'];
@@ -396,6 +403,8 @@ class MongoCollection
      */
     public function validate($scanData = false)
     {
+        die(__METHOD__);
+
         $result = $this->db->command([
             'validate' => $this->name,
             'full' => $scanData
@@ -417,6 +426,8 @@ class MongoCollection
      */
     protected static function toIndexString($keys)
     {
+        die(__METHOD__);
+
         if (is_string($keys)) {
             return self::toIndexStringFromString($keys);
         } elseif (is_object($keys)) {
@@ -472,6 +483,8 @@ class MongoCollection
      */
     public function deleteIndex($keys)
     {
+        die(__METHOD__);
+
         $cmd = [
             'deleteIndexes' => $this->name,
             'index' => self::toIndexString($keys)
@@ -487,6 +500,8 @@ class MongoCollection
      */
     public function deleteIndexes()
     {
+        die(__METHOD__);
+
         return (bool) $this->db->getIndexesCollection()->drop();
     }
 
@@ -506,6 +521,8 @@ class MongoCollection
      */
     public function ensureIndex($keys, array $options = [])
     {
+        die(__METHOD__);
+
         if (!is_array($keys)) {
             $keys = [$keys => 1];
         }
@@ -555,6 +572,8 @@ class MongoCollection
      */
     public function getIndexInfo()
     {
+        die(__METHOD__);
+
         $indexes = $this->db->getIndexesCollection()->find([
             'ns' => $this->fqn
         ]);
@@ -572,6 +591,8 @@ class MongoCollection
      */
     public function setReadPreference($readPreference, array $tags = null)
     {
+        die(__METHOD__);
+
         if ($newPreference = MongoClient::_validateReadPreference($readPreference, $tags)) {
             $this->readPreference = $newPreference;
         }
@@ -625,6 +646,8 @@ class MongoCollection
      */
     public function aggregate(array $pipeline)
     {
+        die(__METHOD__);
+
         if (func_num_args() > 1) {
             $pipeline = func_get_args();
         }
@@ -647,6 +670,8 @@ class MongoCollection
      */
     public function distinct($key, array $query = [])
     {
+        die(__METHOD__);
+
         $cmd = [
             'distinct' => $this->name,
             'key' => $key,
@@ -685,6 +710,8 @@ class MongoCollection
         array $options = array()
     )
     {
+        die(__METHOD__);
+
         $cmd = [
             'group' => [
                 'ns' => $this->name,

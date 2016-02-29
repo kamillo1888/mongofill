@@ -39,36 +39,20 @@ class MongoDB
     private $readPreference;
 
     /**
-     * Creates a new database
-     *
-     * @param MongoClient $client - Database connection.
-     * @param string $name - Database name.
+     * @var \MongoDB\Collection
      */
-    public function __construct(MongoClient $client, $name)
+    private $currentCollection = null;
+
+    private $mongoCollections = [];
+
+    public function setCurrentCollection($collection)
     {
-        $this->name = $name;
-        $this->client = $client;
-        $this->readPreference = $client->getReadPreference();
+        $this->currentCollection = $collection;
     }
 
-    /**
-     * Gets a collection
-     *
-     * @param string $name - The name of the collection.
-     *
-     * @return MongoCollection - Returns the collection.
-     */
-    public function __get($name)
+    public function getCurrentCollection()
     {
-        return $this->selectCollection($name);
-    }
-
-    /**
-     * @return MongoClient
-     */
-    public function _getClient()
-    {
-        return $this->client;
+        return $this->currentCollection;
     }
 
     /**
@@ -81,142 +65,15 @@ class MongoDB
     public function selectCollection($name)
     {
         if (!isset($this->collections[$name])) {
-            $this->collections[$name] = new MongoCollection($this, $name);
+            $this->mongoCollections[$name] = new \MongoDB\Collection(
+                $this->client->getCurrentClient(), $this->name, $name
+            );
+
+            $this->collections[$name] = new MongoCollection($this, $name, $this->mongoCollections[$name]);
+            $this->currentCollection = $this->mongoCollections[$name];
         }
 
         return $this->collections[$name];
-    }
-
-
-    public function _getFullCollectionName($collectionName)
-    {
-        return $this->name . '.' . $collectionName;
-    }
-
-    /**
-     * Drops this database
-     *
-     * @return array - Returns the database response.
-     */
-    public function drop()
-    {
-        $cmd = ['dropDatabase' => 1];
-
-        return $this->command($cmd);
-    }
-
-    /**
-     * Execute a database command
-     *
-     * @param array $command - The query to send.
-     * @param array $options - This parameter is an associative array of
-     *   the form array("optionname" => boolean, ...).
-     *
-     * @return array - Returns database response.
-     */
-    public function command(array $cmd, array $options = [])
-    {
-        $timeout = MongoCursor::$timeout;
-        if (!empty($options['timeout'])) {
-            $timeout = $options['timeout'];
-        }
-
-        $protocol = empty($options['protocol'])
-            ? $this->client->_getWriteProtocol()
-            : $options['protocol'];
-
-        $response = $protocol->opQuery(
-            "{$this->name}.\$cmd",
-            $cmd,
-            0, -1, 0,
-            $timeout
-        );
-
-        return $response['result'][0];
-    }
-
-    /**
-     * Get all collections from this database
-     *
-     * @param bool $includeSystemCollections -
-     *
-     * @return array - Returns the names of the all the collections in the
-     *   database as an array.
-     */
-    public function getCollectionNames($includeSystemCollections = false)
-    {
-        $collections = [];
-        $namespaces = $this->selectCollection(self::NAMESPACES_COLLECTION);
-        foreach ($namespaces->find() as $collection) {
-            if (
-                !$includeSystemCollections &&
-                $this->isSystemCollection($collection['name'])
-            ) {
-                continue;
-            }
-
-            if ($this->isAnIndexCollection($collection['name'])) {
-                continue;
-            }
-
-            $collections[] = $this->getCollectionName($collection['name']);
-        }
-
-        return $collections;
-    }
-
-    /**
-     * Gets an array of all MongoCollections for this database
-     *
-     * @param bool $includeSystemCollections -
-     *
-     * @return array - Returns an array of MongoCollection objects.
-     */
-    public function listCollections($includeSystemCollections = false)
-    {
-        $collections = [];
-        $names = $this->getCollectionNames($includeSystemCollections);
-        foreach ($names as $name) {
-            $collections[] = $this->selectCollection($name);
-        }
-
-        return $collections;
-    }
-
-    private function isAnIndexCollection($namespace)
-    {
-        return !strpos($namespace, '$') === false;
-    }
-
-
-    private function isSystemCollection($namespace)
-    {
-        return !strpos($namespace, '.system.') === false;
-    }
-
-    private function getCollectionName($namespace)
-    {
-        $dot = strpos($namespace, '.');
-
-        return substr($namespace, $dot + 1);
-    }
-
-    public function getIndexesCollection()
-    {
-        return $this->selectCollection(self::INDEX_COLLECTION);
-    }
-
-    /**
-     * Fetches toolkit for dealing with files stored in this database
-     *
-     * @param string $prefix - The prefix for the files and chunks
-     *   collections.
-     *
-     * @return MongoGridFS - Returns a new gridfs object for this database.
-     */
-    public function getGridFS($prefix = 'fs')
-    {
-        return new MongoGridFS($this, $prefix);
     }
 
     /**
@@ -250,6 +107,63 @@ class MongoDB
             'nonce' => $nonce,
             'key' => $digest
         ], $options);
+    }
+
+    /**
+     * Execute a database command
+     *
+     * @param array $command - The query to send.
+     * @param array $options - This parameter is an associative array of
+     *   the form array("optionname" => boolean, ...).
+     *
+     * @return array - Returns database response.
+     */
+    public function command(array $cmd, array $options = [])
+    {
+        $command = new \MongoDB\Driver\Command($cmd);
+
+        dump($cmd);
+        $sdff = $this->client->mongoDBClient->executeCommand('sf_arena_sf', $command)->toArray();
+
+        var_dump($sdff, $command);
+
+//        var_dump($cmd);
+
+//        die(__METHOD__);
+//        $timeout = MongoCursor::$timeout;
+//        if (!empty($options['timeout'])) {
+//            $timeout = $options['timeout'];
+//        }
+//
+//        $protocol = empty($options['protocol'])
+//            ? $this->client->_getWriteProtocol()
+//            : $options['protocol'];
+//
+//        $response = $protocol->opQuery(
+//            "{$this->name}.\$cmd",
+//            $cmd,
+//            0, -1, 0,
+//            $timeout
+//        );
+
+        $response = (array)$sdff[0];
+
+        dump($response);
+        return $response;
+//        return $response['result'][0];
+    }
+
+    /**
+     * Creates a new database
+     *
+     * @param MongoClient $client - Database connection.
+     * @param string $name - Database name.
+     */
+    public function __construct(MongoClient $client, $name)
+    {
+        $this->name = $name;
+        $this->client = $client;
+        $this->readPreference = $client->getReadPreference();
     }
 
     /**
@@ -297,6 +211,18 @@ class MongoDB
     }
 
     /**
+     * Drops this database
+     *
+     * @return array - Returns the database response.
+     */
+    public function drop()
+    {
+        $cmd = ['dropDatabase' => 1];
+
+        return $this->command($cmd);
+    }
+
+    /**
      * Drops a collection [deprecated]
      *
      * @param mixed $coll - MongoCollection or name of collection to drop.
@@ -337,6 +263,48 @@ class MongoDB
     }
 
     /**
+     * Gets a collection
+     *
+     * @param string $name - The name of the collection.
+     *
+     * @return MongoCollection - Returns the collection.
+     */
+    public function __get($name)
+    {
+        return $this->selectCollection($name);
+    }
+
+    /**
+     * Get all collections from this database
+     *
+     * @param bool $includeSystemCollections -
+     *
+     * @return array - Returns the names of the all the collections in the
+     *   database as an array.
+     */
+    public function getCollectionNames($includeSystemCollections = false)
+    {
+        $collections = [];
+        $namespaces = $this->selectCollection(self::NAMESPACES_COLLECTION);
+        foreach ($namespaces->find() as $collection) {
+            if (
+                !$includeSystemCollections &&
+                $this->isSystemCollection($collection['name'])
+            ) {
+                continue;
+            }
+
+            if ($this->isAnIndexCollection($collection['name'])) {
+                continue;
+            }
+
+            $collections[] = $this->getCollectionName($collection['name']);
+        }
+
+        return $collections;
+    }
+
+    /**
      * Fetches the document pointed to by a database reference
      *
      * @param array $ref - A database reference.
@@ -346,6 +314,19 @@ class MongoDB
     public function getDBRef(array $ref)
     {
         throw new Exception('Not Implemented');
+    }
+
+    /**
+     * Fetches toolkit for dealing with files stored in this database
+     *
+     * @param string $prefix - The prefix for the files and chunks
+     *   collections.
+     *
+     * @return MongoGridFS - Returns a new gridfs object for this database.
+     */
+    public function getGridFS($prefix = 'fs')
+    {
+        return new MongoGridFS($this, $prefix);
     }
 
     /**
@@ -379,6 +360,60 @@ class MongoDB
     }
 
     /**
+     * @return MongoClient
+     */
+    public function _getClient()
+    {
+        return $this->client;
+    }
+
+    public function _getFullCollectionName($collectionName)
+    {
+        return $this->name . '.' . $collectionName;
+    }
+
+    /**
+     * Gets an array of all MongoCollections for this database
+     *
+     * @param bool $includeSystemCollections -
+     *
+     * @return array - Returns an array of MongoCollection objects.
+     */
+    public function listCollections($includeSystemCollections = false)
+    {
+        $collections = [];
+        $names = $this->getCollectionNames($includeSystemCollections);
+        foreach ($names as $name) {
+            $collections[] = $this->selectCollection($name);
+        }
+
+        return $collections;
+    }
+
+    private function isAnIndexCollection($namespace)
+    {
+        return !strpos($namespace, '$') === false;
+    }
+
+
+    private function isSystemCollection($namespace)
+    {
+        return !strpos($namespace, '.system.') === false;
+    }
+
+    private function getCollectionName($namespace)
+    {
+        $dot = strpos($namespace, '.');
+
+        return substr($namespace, $dot + 1);
+    }
+
+    public function getIndexesCollection()
+    {
+        return $this->selectCollection(self::INDEX_COLLECTION);
+    }
+
+    /**
      * Check if there was an error on the most recent db operation performed
      *
      * @return array - Returns the error, if there was one.
@@ -387,6 +422,7 @@ class MongoDB
     {
         throw new Exception('Not Implemented');
     }
+
 
     /**
      * Checks for the last error thrown during a database operation
